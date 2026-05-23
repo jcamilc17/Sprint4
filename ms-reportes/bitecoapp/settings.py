@@ -32,7 +32,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
 
     # Rate limiting (ASR-S4-SEG)
-    "ratelimit",
+    "django_ratelimit",
 
     "alerta",
     "recursoCloud",

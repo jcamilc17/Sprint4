@@ -1,8 +1,5 @@
 from django.db import models
 
-from empresa.models import Empresa
-from usuario.models import Usuario
-
 
 class Alerta(models.Model):
     tipo = models.CharField(max_length=100)
@@ -11,22 +8,8 @@ class Alerta(models.Model):
     fechaCreacion = models.DateField(auto_now_add=True)
     fechaLectura = models.DateField(auto_now=True)
     estado = models.CharField(max_length=100)
-
-    # Relaciones (SET_NULL requiere null=True)
-    usuario = models.ForeignKey(
-        Usuario,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        verbose_name="usuarioAlerta",
-    )
-    empresa = models.ForeignKey(
-        Empresa,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        verbose_name="empresaAlerta",
-    )
+    usuario_id = models.IntegerField(null=True, blank=True)
+    empresa_id = models.IntegerField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.tipo}-{self.severidad}: {self.mensaje}"

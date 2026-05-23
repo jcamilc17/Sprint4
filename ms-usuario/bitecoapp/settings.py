@@ -1,13 +1,3 @@
-"""
-Django settings for ms-usuario — Sprint 4.
-
-Cambios respecto al Sprint 3:
-- Solo incluye apps de usuario y empresa
-- BD propia: usuarios_db (primary + replica) + accounts_db
-- Se elimina monitoring_db
-- Auth0 se mantiene (este MS gestiona autenticación)
-- AuditMiddleware se mantiene
-"""
 import os
 from pathlib import Path
 
@@ -20,7 +10,6 @@ SECRET_KEY = os.environ.get(
 DEBUG = os.environ.get("DEBUG", "True") == "True"
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
 
-
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -28,10 +17,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-
-    # Auth0 OAuth2
     "social_django",
-
     "empresa",
     "usuario",
 ]
@@ -44,8 +30,6 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-
-    # ASR-14 - registra cada request a endpoints auditables
     "bitecoapp.audit_middleware.AuditMiddleware",
 ]
 
@@ -71,35 +55,16 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "bitecoapp.wsgi.application"
 
-# accounts_db para Auth0/sesiones + usuarios_db para datos de usuario
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql_psycopg2",
-        "NAME": os.environ.get("DB_NAME_DEFAULT", "accounts_db"),
+        "NAME": os.environ.get("DB_NAME", "accounts_db"),
         "USER": os.environ.get("DB_USER", "biteco_user"),
         "PASSWORD": os.environ.get("DB_PASSWORD", "biteco_pass"),
-        "HOST": os.environ.get("DB_HOST_DEFAULT", "localhost"),
-        "PORT": os.environ.get("DB_PORT", "5432"),
-    },
-    "usuarios": {
-        "ENGINE": "django.db.backends.postgresql_psycopg2",
-        "NAME": os.environ.get("DB_NAME", "usuarios_db"),
-        "USER": os.environ.get("DB_USER", "biteco_user"),
-        "PASSWORD": os.environ.get("DB_PASSWORD", "biteco_pass"),
-        "HOST": os.environ.get("DB_HOST_PRIMARY", "localhost"),
-        "PORT": os.environ.get("DB_PORT", "5432"),
-    },
-    "usuarios_replica": {
-        "ENGINE": "django.db.backends.postgresql_psycopg2",
-        "NAME": os.environ.get("DB_NAME", "usuarios_db"),
-        "USER": os.environ.get("DB_USER", "biteco_user"),
-        "PASSWORD": os.environ.get("DB_PASSWORD", "biteco_pass"),
-        "HOST": os.environ.get("DB_HOST_REPLICA", "localhost"),
+        "HOST": os.environ.get("DB_HOST", "localhost"),
         "PORT": os.environ.get("DB_PORT", "5432"),
     },
 }
-
-DATABASE_ROUTERS = ["bitecoapp.db_router.MonitoringReplicaRouter"]
 
 AUTH_USER_MODEL = "usuario.Usuario"
 
