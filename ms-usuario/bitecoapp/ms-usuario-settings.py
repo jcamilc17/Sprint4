@@ -1,29 +1,26 @@
 """
-Django settings for bitecoapp project — Sprint 3.
+Django settings for ms-usuario — Sprint 4.
 
-Cambios respecto al original (todos comentados con # >>> NUEVO o # >>> CAMBIO):
-- Lectura de variables de entorno (12-factor)
-- social-auth-app-django con Auth0 (ASR-01)
-- AuditMiddleware activado (ASR-14)
-- 3 BDs configuradas: default (accounts) + monitoring + monitoring_replica
-- AUTH_USER_MODEL = usuario.Usuario
-- Database router primary/replica (ASR-07)
+Cambios respecto al Sprint 3:
+- Solo incluye apps de usuario y empresa
+- BD propia: usuarios_db (primary + replica) + accounts_db
+- Se elimina monitoring_db
+- Auth0 se mantiene (este MS gestiona autenticación)
+- AuditMiddleware se mantiene
 """
 import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# >>> CAMBIO: lectura desde el entorno
 SECRET_KEY = os.environ.get(
     "SECRET_KEY",
-    "django-insecure-+t@g$_$x0$h=hx%4r+@n5$qkj1q8)folzt=h!9ca3d8ylgs+$+",  # solo dev
+    "django-insecure-usuario-dev-key-cambiar-en-produccion",
 )
 DEBUG = os.environ.get("DEBUG", "True") == "True"
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
 
 
-# Application definition
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -32,20 +29,10 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
-    # >>> NUEVO: Auth0 OAuth2
+    # Auth0 OAuth2
     "social_django",
 
-    "alerta",
-    "cuentaCloud",
     "empresa",
-    "factura",
-    "pago",
-    "planSuscripcion",
-    "proyecto",
-    "recursoCloud",
-    "registroAuditoria",
-    "registroCosto",
-    "reporte",
     "usuario",
 ]
 
@@ -58,7 +45,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 
-    # >>> NUEVO: ASR-14 - registra cada request a endpoints auditables
+    # ASR-14 - registra cada request a endpoints auditables
     "bitecoapp.audit_middleware.AuditMiddleware",
 ]
 
@@ -67,7 +54,6 @@ ROOT_URLCONF = "bitecoapp.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        # >>> NUEVO: directorio global de templates (base/, etc.)
         "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
@@ -76,7 +62,6 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
-                # >>> NUEVO: requeridos por social_django
                 "social_django.context_processors.backends",
                 "social_django.context_processors.login_redirect",
             ],
@@ -86,7 +71,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "bitecoapp.wsgi.application"
 
-# >>> CAMBIO: 3 bases de datos (accounts + monitoring primary + replica)
+# accounts_db para Auth0/sesiones + usuarios_db para datos de usuario
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql_psycopg2",
@@ -96,35 +81,28 @@ DATABASES = {
         "HOST": os.environ.get("DB_HOST_DEFAULT", "localhost"),
         "PORT": os.environ.get("DB_PORT", "5432"),
     },
-    "monitoring": {
+    "usuarios": {
         "ENGINE": "django.db.backends.postgresql_psycopg2",
-        "NAME": os.environ.get("DB_NAME_MONITORING", "monitoring_db"),
+        "NAME": os.environ.get("DB_NAME", "usuarios_db"),
         "USER": os.environ.get("DB_USER", "biteco_user"),
         "PASSWORD": os.environ.get("DB_PASSWORD", "biteco_pass"),
-        "HOST": os.environ.get("DB_HOST_MONITORING_PRIMARY", "localhost"),
+        "HOST": os.environ.get("DB_HOST_PRIMARY", "localhost"),
         "PORT": os.environ.get("DB_PORT", "5432"),
     },
-    # >>> NUEVO: lectura desde la replica (ASR-07 - Streaming Replication)
-    "monitoring_replica": {
+    "usuarios_replica": {
         "ENGINE": "django.db.backends.postgresql_psycopg2",
-        "NAME": os.environ.get("DB_NAME_MONITORING", "monitoring_db"),
+        "NAME": os.environ.get("DB_NAME", "usuarios_db"),
         "USER": os.environ.get("DB_USER", "biteco_user"),
         "PASSWORD": os.environ.get("DB_PASSWORD", "biteco_pass"),
-        "HOST": os.environ.get("DB_HOST_MONITORING_REPLICA", "localhost"),
+        "HOST": os.environ.get("DB_HOST_REPLICA", "localhost"),
         "PORT": os.environ.get("DB_PORT", "5432"),
     },
 }
 
-# >>> NUEVO: router primary/replica
 DATABASE_ROUTERS = ["bitecoapp.db_router.MonitoringReplicaRouter"]
 
-# >>> NUEVO: usuario.Usuario hereda de AbstractUser y agrega rol/empresa_id
 AUTH_USER_MODEL = "usuario.Usuario"
 
-
-# ============================================================================
-# >>> NUEVO BLOQUE: Auth0 + social_django (ASR-01)
-# ============================================================================
 AUTHENTICATION_BACKENDS = [
     "social_core.backends.auth0.Auth0OAuth2",
     "django.contrib.auth.backends.ModelBackend",
@@ -140,7 +118,6 @@ LOGIN_URL = "/login/auth0"
 LOGIN_REDIRECT_URL = "/dashboard/"
 LOGOUT_REDIRECT_URL = "/"
 
-# Pipeline post-login: extrae rol y empresa_id del JWT y los persiste en User
 SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
     "social_core.pipeline.social_auth.social_uid",
@@ -151,13 +128,9 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
-    "usuario.pipeline.save_role_and_empresa",  # custom (ver usuario/pipeline.py)
+    "usuario.pipeline.save_role_and_empresa",
 )
 
-
-# ============================================================================
-# Logging
-# ============================================================================
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -173,10 +146,6 @@ LOGGING = {
     },
 }
 
-
-# ============================================================================
-# Resto sin cambios
-# ============================================================================
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
@@ -194,6 +163,5 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Detras del ALB el client IP real viene en X-Forwarded-For
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True

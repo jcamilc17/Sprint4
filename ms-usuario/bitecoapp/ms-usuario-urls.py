@@ -1,11 +1,11 @@
 """
-bitecoapp/urls.py - URLs raíz
+bitecoapp/urls.py — MS-Usuario Sprint 4
 
-Cambios respecto al original:
-1. Agregadas rutas de social_django (/login/auth0/, /complete/auth0/, /logout/)
-2. Agregada vista HTML del dashboard ASR (/asr-hub/)
-3. Agregadas vistas HTML de reportes (/reportes/)
-4. Las rutas API (/api/...) siguen funcionando igual
+Expone:
+- /health-check/
+- /login/auth0, /complete/auth0, /logout/  (Auth0 OAuth2)
+- /dashboard/
+- /api/auth/  (API JSON)
 """
 from django.contrib import admin
 from django.contrib.auth.decorators import login_required
@@ -13,6 +13,7 @@ from django.contrib.auth import logout
 from django.shortcuts import render, redirect
 from django.urls import path, include
 from django.http import HttpResponse
+import os
 
 
 def health_check(request):
@@ -21,7 +22,6 @@ def health_check(request):
 
 
 def home(request):
-    """Landing page: si no hay sesion -> login Auth0; si hay -> dashboard."""
     if request.user.is_authenticated:
         return redirect("/dashboard/")
     return render(request, "base/home.html")
@@ -29,7 +29,6 @@ def home(request):
 
 @login_required
 def dashboard_view(request):
-    """Dashboard principal con links a reportes y al ASR Hub."""
     return render(request, "base/dashboard.html", {
         "user": request.user,
         "rol": getattr(request.user, "rol", "Usuario"),
@@ -39,33 +38,28 @@ def dashboard_view(request):
 
 def custom_logout(request):
     logout(request)
+    domain = os.environ.get("AUTH0_DOMAIN")
+    client_id = os.environ.get("AUTH0_CLIENT_ID")
+    alb_url = os.environ.get("ALB_URL", "http://localhost:8001")
     return redirect(
-        f"https://dev-lhsedsl4b3teyxes.us.auth0.com/v2/logout"
-        f"?client_id=UGG4z0BT5d2t3HcOt6LdVehrY5K5Qpkw"
-        f"&returnTo=http://biteco-alb-49945009.us-east-1.elb.amazonaws.com"
+        f"https://{domain}/v2/logout"
+        f"?client_id={client_id}"
+        f"&returnTo={alb_url}"
     )
 
 
 urlpatterns = [
-    # Admin Django
     path("admin/", admin.site.urls),
-
-    # Health check (para el ALB)
     path("health-check/", health_check, name="health_check"),
 
-    # Auth0 OAuth2 (social_django)
+    # Auth0 OAuth2
     path("", include("social_django.urls", namespace="social")),
     path("logout/", custom_logout, name="logout"),
 
-    # Vistas HTML
+    # HTML
     path("", home, name="home"),
     path("dashboard/", dashboard_view, name="dashboard"),
 
-    # Apps con sus templates HTML
-    path("reportes/", include("reporte.urls_html")),
-    path("asr-hub/", include("registroAuditoria.urls_html")),
-
-    # APIs JSON (sin cambios — para JMeter y curl)
+    # API JSON
     path("api/auth/", include("usuario.urls")),
-    path("api/reportes/", include("reporte.urls")),
 ]
