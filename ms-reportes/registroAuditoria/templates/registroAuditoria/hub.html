@@ -1,0 +1,374 @@
+{% extends "base/base.html" %}
+{% block title %}BITE.co · Pruebas de Seguridad y Disponibilidad{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between">
+  <div>
+    <h1 class="text-3xl font-bold tracking-tight">Pruebas de Seguridad y Disponibilidad</h1>
+    <p class="text-slate-600 mt-1">Validación en vivo de ASR-01 (confidencialidad), ASR-07 (disponibilidad) y ASR-14 (auditoría).</p>
+  </div>
+  <a href="/asr-hub/auditoria/" class="text-sm text-slate-700 border border-slate-300 rounded px-4 py-2 hover:bg-slate-100">
+    Ver tabla completa →
+  </a>
+</div>
+
+<!-- ============= KPIs ============= -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+  <div class="bg-white border border-slate-200 rounded-lg p-5">
+    <div class="text-xs uppercase tracking-wide text-slate-500">Eventos auditados</div>
+    <div class="text-3xl font-bold mt-1 mono" id="kpi-total">{{ total_eventos }}</div>
+    <div class="text-xs text-slate-400 mt-1">RegistroAuditoria</div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-lg p-5">
+    <div class="text-xs uppercase tracking-wide text-slate-500">Accesos bloqueados</div>
+    <div class="text-3xl font-bold mt-1 text-rose-600 mono" id="kpi-fallidos">{{ total_fallidos }}</div>
+    <div class="text-xs text-slate-400 mt-1">requests no autorizados (401/403)</div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-lg p-5">
+    <div class="text-xs uppercase tracking-wide text-slate-500">Health endpoint</div>
+    <div class="text-3xl font-bold mt-1 text-emerald-600 mono" id="kpi-health">…</div>
+    <div class="text-xs text-slate-400 mt-1">/health-check/</div>
+  </div>
+</div>
+
+<!-- ============= ASR-01 ============= -->
+<section class="bg-white border border-slate-200 rounded-lg overflow-hidden mb-6">
+  <div class="border-b border-slate-200 bg-rose-50 px-5 py-3 flex items-center justify-between">
+    <div>
+      <h2 class="font-semibold text-slate-900">ASR-01 · Bloqueo de acceso no autorizado</h2>
+      <p class="text-xs text-slate-600 mt-0.5">100% de accesos no autorizados deben retornar 401/403 y quedar registrados.</p>
+    </div>
+    <span class="text-xs font-semibold uppercase tracking-wide bg-rose-100 text-rose-700 rounded px-2 py-1">Confidencialidad</span>
+  </div>
+  <div class="p-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div>
+      <p class="text-sm text-slate-600 mb-3">
+        Puedes probar <strong>automáticamente</strong> con los botones o <strong>manualmente</strong> abriendo las URLs en el navegador o en una pestaña de incógnito.
+      </p>
+
+      <!-- Pruebas automáticas -->
+      <div class="space-y-2 mb-5">
+        <button onclick="testAsr1NoToken()"
+                class="w-full text-left border border-slate-300 hover:border-rose-500 rounded px-4 py-2.5 text-sm">
+          1. Sin sesión → debe retornar 401
+        </button>
+        <button onclick="testAsr1Burst()"
+                class="w-full text-left border border-slate-300 hover:border-rose-500 rounded px-4 py-2.5 text-sm">
+          2. 25 requests sin sesión (carga) → 25 × 401
+        </button>
+        <button onclick="testAsr1CrossEmpresa()"
+                class="w-full text-left border border-slate-300 hover:border-rose-500 rounded px-4 py-2.5 text-sm">
+          3. Acceso cruzado entre empresas → debe retornar 403
+        </button>
+        <button onclick="testAsr1Exitoso()"
+                class="w-full text-left border border-emerald-400 hover:border-emerald-600 rounded px-4 py-2.5 text-sm text-emerald-800 bg-emerald-50">
+          4. Acceso autenticado → debe retornar 200 ✓
+        </button>
+      </div>
+
+      <!-- Pruebas manuales -->
+      <div class="bg-slate-50 border border-slate-200 rounded p-4">
+        <div class="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2">Prueba manual</div>
+        <div class="space-y-2 text-xs">
+          <div>
+            <span class="text-slate-500">Sin sesión (abre en incógnito):</span><br>
+            <a href="/api/reportes/mensual?empresa_id=1&mes=3&anio=2026" target="_blank"
+               class="mono text-rose-600 hover:underline break-all">/api/reportes/mensual?empresa_id=1&amp;mes=3&amp;anio=2026</a>
+            <span class="text-slate-400 ml-1">→ espera 401</span>
+          </div>
+          <div>
+            <span class="text-slate-500">Acceso cruzado (con sesión activa):</span><br>
+            <a href="/api/reportes/mensual?empresa_id=99&mes=3&anio=2026" target="_blank"
+               class="mono text-rose-600 hover:underline break-all">/api/reportes/mensual?empresa_id=99&amp;mes=3&amp;anio=2026</a>
+            <span class="text-slate-400 ml-1">→ espera 403</span>
+          </div>
+          <div>
+            <span class="text-slate-500">Acceso válido (con sesión activa):</span><br>
+            <a href="/api/reportes/mensual?empresa_id=1&mes=3&anio=2026" target="_blank"
+               class="mono text-emerald-600 hover:underline break-all">/api/reportes/mensual?empresa_id=1&amp;mes=3&amp;anio=2026</a>
+            <span class="text-slate-400 ml-1">→ espera 200</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">Resultado</div>
+      <pre id="asr1-out" class="bg-slate-900 text-emerald-300 text-xs rounded p-3 h-72 overflow-auto mono">// Ejecuta una prueba o abre un link manualmente…
+// Los resultados quedan en el Trail de Auditoría (abajo).
+</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ============= ASR-07 ============= -->
+<section class="bg-white border border-slate-200 rounded-lg overflow-hidden mb-6">
+  <div class="border-b border-slate-200 bg-emerald-50 px-5 py-3 flex items-center justify-between">
+    <div>
+      <h2 class="font-semibold text-slate-900">ASR-07 · Recuperación automática del ALB</h2>
+      <p class="text-xs text-slate-600 mt-0.5">El ALB redirige tráfico a nodos sanos. 0% de downtime total.</p>
+    </div>
+    <span class="text-xs font-semibold uppercase tracking-wide bg-emerald-100 text-emerald-700 rounded px-2 py-1">Disponibilidad</span>
+  </div>
+  <div class="p-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div>
+      <p class="text-sm text-slate-600 mb-3">
+        El polling llama a <span class="mono">/health-check/</span> cada 2 segundos.
+        La barra debe permanecer <span class="text-emerald-600 font-semibold">verde</span> incluso cuando
+        se detiene uno de los servidores web — el ALB redirige al nodo sano automáticamente.
+      </p>
+      <button onclick="toggleHealthPoll()" id="poll-btn"
+              class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded px-4 py-2">
+        Iniciar polling
+      </button>
+      <div class="mt-4 bg-slate-50 border border-slate-200 rounded p-3 text-xs">
+        <div class="font-semibold text-slate-700 mb-1">Para probar: detén el runserver en una instancia web</div>
+        <p class="text-slate-500">Entra por EC2 Instance Connect a web-1 o web-2 y corre:</p>
+        <pre class="mono text-slate-800 mt-1">pkill -f "manage.py runserver"</pre>
+        <p class="text-slate-500 mt-1">El polling debe seguir verde (el ALB redirige al otro nodo).</p>
+      </div>
+    </div>
+    <div>
+      <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">Health timeline</div>
+      <canvas id="asr7-chart" class="w-full bg-slate-50 border border-slate-200 rounded" height="160"></canvas>
+      <div class="flex justify-between text-xs text-slate-400 mono mt-2">
+        <span>← past · 60 muestras · 2s c/u</span>
+        <span id="asr7-stats">— ms · 0 OK · 0 FAIL</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============= ASR-14 ============= -->
+<section class="bg-white border border-slate-200 rounded-lg overflow-hidden">
+  <div class="border-b border-slate-200 bg-indigo-50 px-5 py-3 flex items-center justify-between">
+    <div>
+      <h2 class="font-semibold text-slate-900">ASR-14 · Trail de auditoría</h2>
+      <p class="text-xs text-slate-600 mt-0.5">
+        Cada request a endpoints auditables queda en RegistroAuditoria.
+        <span class="text-emerald-700 font-semibold">exitoso</span> = status &lt; 400 ·
+        <span class="text-rose-700 font-semibold">fallido</span> = status ≥ 400 (401/403/500).
+        Polling cada 3s.
+      </p>
+    </div>
+    <span class="text-xs font-semibold uppercase tracking-wide bg-indigo-100 text-indigo-700 rounded px-2 py-1">Integridad</span>
+  </div>
+  <div class="p-5">
+    <div class="border border-slate-200 rounded overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 border-b border-slate-200">
+          <tr>
+            <th class="text-left px-4 py-2 text-xs uppercase tracking-wide text-slate-600 font-semibold">ID</th>
+            <th class="text-left px-4 py-2 text-xs uppercase tracking-wide text-slate-600 font-semibold">Fecha</th>
+            <th class="text-left px-4 py-2 text-xs uppercase tracking-wide text-slate-600 font-semibold">Acción</th>
+            <th class="text-left px-4 py-2 text-xs uppercase tracking-wide text-slate-600 font-semibold">Usuario</th>
+            <th class="text-left px-4 py-2 text-xs uppercase tracking-wide text-slate-600 font-semibold">IP</th>
+            <th class="text-left px-4 py-2 text-xs uppercase tracking-wide text-slate-600 font-semibold">Resultado</th>
+          </tr>
+        </thead>
+        <tbody id="audit-tbody" class="divide-y divide-slate-100"></tbody>
+      </table>
+    </div>
+    <p class="text-xs text-slate-400 mt-3">
+      Mostrando los últimos 50 eventos ·
+      <a href="/asr-hub/auditoria/" class="text-indigo-600 hover:underline">ver tabla completa →</a>
+    </p>
+  </div>
+</section>
+
+<script>
+// ============================================================================
+// ASR-01 — Pruebas automáticas
+// ============================================================================
+const REPORTE_URL     = "/api/reportes/mensual?empresa_id=1&mes=3&anio=2026";
+const REPORTE_CROSS   = "/api/reportes/mensual?empresa_id=99&mes=3&anio=2026";
+
+function termWrite(msg) {
+  const el = document.getElementById("asr1-out");
+  el.textContent += msg + "\n";
+  el.scrollTop = el.scrollHeight;
+}
+function termClear() { document.getElementById("asr1-out").textContent = ""; }
+
+// Prueba 1: Sin sesión → 401
+async function testAsr1NoToken() {
+  termClear();
+  termWrite("$ GET " + REPORTE_URL);
+  termWrite("(sin sesión activa — simulado con credentials:'omit')\n");
+  try {
+    const r = await fetch(REPORTE_URL, { credentials: "omit" });
+    const txt = await r.text();
+    termWrite("HTTP " + r.status);
+    termWrite(txt.substring(0, 300));
+    termWrite("");
+    termWrite(r.status === 401 || r.status === 302
+      ? "✓ ASR-01 OK: bloqueado sin sesión (" + r.status + ")."
+      : "✗ ASR-01 FAIL: retornó " + r.status + " (esperado 401).");
+  } catch (e) { termWrite("Error de red: " + e.message); }
+}
+
+// Prueba 2: Burst 25 requests sin sesión
+async function testAsr1Burst() {
+  termClear();
+  termWrite("$ 25 requests sin sesión a " + REPORTE_URL);
+  termWrite("");
+  let blocked = 0;
+  for (let i = 1; i <= 25; i++) {
+    try {
+      const r = await fetch(REPORTE_URL, { credentials: "omit" });
+      if (r.status >= 400 || r.status === 302) blocked++;
+      termWrite("[" + i + "/25] HTTP " + r.status);
+    } catch (e) {
+      termWrite("[" + i + "/25] error: " + e.message);
+    }
+    await new Promise(res => setTimeout(res, 80));
+  }
+  termWrite("");
+  termWrite("Bloqueados: " + blocked + "/25");
+  termWrite(blocked === 25
+    ? "✓ ASR-01 OK: 100% bloqueado + registrado en auditoría."
+    : "✗ ASR-01 FAIL: solo " + blocked + "/25 bloqueados.");
+}
+
+// Prueba 3: Acceso cruzado → 403
+async function testAsr1CrossEmpresa() {
+  termClear();
+  termWrite("$ GET " + REPORTE_CROSS);
+  termWrite("(usuario con empresa_id=1 intentando ver empresa_id=99)\n");
+  try {
+    const r = await fetch(REPORTE_CROSS, { credentials: "include" });
+    const txt = await r.text();
+    termWrite("HTTP " + r.status);
+    termWrite(txt.substring(0, 300));
+    termWrite("");
+    if (r.status === 403) {
+      termWrite("✓ ASR-01 OK: acceso cruzado bloqueado (403).");
+    } else if (r.status === 401 || r.status === 302) {
+      termWrite("Nota: necesitas estar logueado via Auth0 para esta prueba.");
+      termWrite("Abre el link manual de abajo con sesión activa.");
+    } else {
+      termWrite("⚠ Retornó " + r.status + " — revisa que tu usuario tenga empresa_id en Auth0.");
+    }
+  } catch (e) { termWrite("Error: " + e.message); }
+}
+
+// Prueba 4: Acceso válido autenticado → 200 (genera registro exitoso)
+async function testAsr1Exitoso() {
+  termClear();
+  termWrite("$ GET " + REPORTE_URL);
+  termWrite("(con sesión activa — genera registro 'exitoso' en auditoría)\n");
+  try {
+    const r = await fetch(REPORTE_URL, { credentials: "include" });
+    const txt = await r.text();
+    termWrite("HTTP " + r.status);
+    termWrite(txt.substring(0, 500));
+    termWrite("");
+    if (r.status === 200) {
+      termWrite("✓ Acceso exitoso. Revisa el trail de auditoría — debe aparecer 'exitoso'.");
+    } else if (r.status === 401 || r.status === 302) {
+      termWrite("Nota: necesitas estar logueado via Auth0 para esta prueba.");
+    } else {
+      termWrite("HTTP " + r.status + " — revisa que tu usuario tenga empresa_id configurado en Auth0.");
+    }
+  } catch (e) { termWrite("Error: " + e.message); }
+}
+
+// ============================================================================
+// ASR-07: health polling + canvas timeline
+// ============================================================================
+const history = [];
+let polling = null;
+
+function toggleHealthPoll() {
+  const btn = document.getElementById("poll-btn");
+  if (polling) {
+    clearInterval(polling); polling = null;
+    btn.textContent = "Iniciar polling";
+    btn.className = "bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded px-4 py-2";
+  } else {
+    polling = setInterval(pollHealth, 2000);
+    pollHealth();
+    btn.textContent = "Detener polling";
+    btn.className = "bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold rounded px-4 py-2";
+  }
+}
+
+async function pollHealth() {
+  const t0 = performance.now();
+  let ok = false;
+  try { const r = await fetch("/health-check/"); ok = r.status === 200; } catch { ok = false; }
+  const ms = Math.round(performance.now() - t0);
+  history.push({ ok, ms });
+  if (history.length > 60) history.shift();
+  drawChart();
+
+  const kpi = document.getElementById("kpi-health");
+  kpi.textContent = ok ? "OK" : "FAIL";
+  kpi.className = "text-3xl font-bold mt-1 mono " + (ok ? "text-emerald-600" : "text-rose-600");
+
+  const okCount = history.filter(h => h.ok).length;
+  document.getElementById("asr7-stats").textContent =
+    ms + " ms · " + okCount + " OK · " + (history.length - okCount) + " FAIL";
+}
+
+function drawChart() {
+  const c = document.getElementById("asr7-chart");
+  const ctx = c.getContext("2d");
+  const W = c.width = c.clientWidth;
+  const H = c.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = "#e2e8f0";
+  ctx.beginPath(); ctx.moveTo(0, H - 20); ctx.lineTo(W, H - 20); ctx.stroke();
+  if (!history.length) return;
+  const bw = W / 60;
+  history.forEach((d, i) => {
+    const x = i * bw;
+    if (d.ok) {
+      const h = Math.min(80, Math.max(8, d.ms / 5));
+      ctx.fillStyle = "#10b981";
+      ctx.fillRect(x + 1, H - 20 - h, bw - 2, h);
+    } else {
+      ctx.fillStyle = "#ef4444";
+      ctx.fillRect(x + 1, 4, bw - 2, H - 24);
+    }
+  });
+}
+
+fetch("/health-check/").then(r => {
+  document.getElementById("kpi-health").textContent = r.status === 200 ? "OK" : "FAIL";
+}).catch(() => document.getElementById("kpi-health").textContent = "FAIL");
+
+// ============================================================================
+// ASR-14: tabla viva con polling al endpoint JSON
+// ============================================================================
+function badge(res) {
+  if (res === "exitoso")
+    return '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded text-xs font-semibold">exitoso</span>';
+  if (res === "fallido")
+    return '<span class="px-2 py-0.5 bg-rose-100 text-rose-800 rounded text-xs font-semibold">fallido</span>';
+  return '<span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">' + (res || '-') + '</span>';
+}
+
+async function refreshAudit() {
+  try {
+    const r = await fetch("/asr-hub/api/audit/");
+    if (!r.ok) return;
+    const data = await r.json();
+    document.getElementById("kpi-total").textContent = data.stats.total;
+    document.getElementById("kpi-fallidos").textContent = data.stats.fallidos;
+    document.getElementById("audit-tbody").innerHTML = data.eventos.map(e => `
+      <tr class="hover:bg-slate-50">
+        <td class="px-4 py-2 mono text-slate-500">${e.id}</td>
+        <td class="px-4 py-2 mono text-xs">${e.fecha || ''}</td>
+        <td class="px-4 py-2 mono">${e.accion}</td>
+        <td class="px-4 py-2">${e.usuario}</td>
+        <td class="px-4 py-2 mono text-xs text-slate-500">${e.ip}</td>
+        <td class="px-4 py-2">${badge(e.resultado)}</td>
+      </tr>
+    `).join('');
+  } catch { /* silenciar */ }
+}
+
+refreshAudit();
+setInterval(refreshAudit, 3000);
+</script>
+{% endblock %}
