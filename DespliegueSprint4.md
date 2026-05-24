@@ -10,7 +10,7 @@
 #   6.5. EC2 → ms-nubes → poblar Redis con datos de consumo
 #   7. EC2 → ms-usuario → clonar, instalar, migrate, runserver
 #   8. EC2 → ms-reportes → clonar, instalar, migrate, seed, gunicorn
-#   9. EC2 → ms-nubes → clonar, instalar, uvicorn (FastAPI)
+#   9. EC2 → ms-nubes → arrancar con uvicorn (FastAPI)
 #  10. Auth0 Dashboard → registrar callback URL del ALB
 # =========================================================
 
@@ -25,7 +25,7 @@
 #
 # ⚠️ IMPORTANTE: el Client Secret puede rotar. Si da error 401 en Auth0,
 # ir a manage.auth0.com → Applications → BITE.CO → Settings → Rotate Secret
-# y actualizar el valor en el .env de MS-Usuario.
+# y actualizar el valor en el .env de MS-Usuario Y MS-Reportes.
 
 
 # ==============================================================
@@ -159,7 +159,6 @@ redis-cli ping
 # ==============================================================
 # EC2 → biteco-ms-nubes → Connect → EC2 Instance Connect
 # ⚠️ Hacer esto DESPUÉS del Paso 6 (Redis ya debe estar corriendo)
-# ⚠️ Hacer esto ANTES del Paso 9 (MS-Nubes debe estar clonado)
 
 cd /home/ubuntu
 git clone https://github.com/jcamilc17/Sprint4.git
@@ -262,6 +261,10 @@ source venv/bin/activate
 pip install -r requirements.txt
 pip install gunicorn
 
+# ⚠️ IMPORTANTE: el repo ya incluye usuario/, empresa/ y templates/
+# necesarios para las sesiones compartidas con MS-Usuario.
+# No es necesario copiarlos manualmente.
+
 cat > .env << 'ENVEOF'
 DEBUG=False
 SECRET_KEY=clave-secreta-aleatoria-larga-aqui
@@ -272,24 +275,15 @@ DB_PASSWORD=biteco_pass
 DB_HOST_PRIMARY=<REPORTES_DB_PRIMARY_IP>
 DB_HOST_REPLICA=<REPORTES_DB_REPLICA_IP>
 DB_PORT=5432
+DB_HOST_ACCOUNTS=<ACCOUNTS_DB_PRIVATE_IP>
 REDIS_URL=redis://<REDIS_PRIVATE_IP>:6379/0
+AUTH0_DOMAIN=dev-lhsedsl4b3teyxes.us.auth0.com
+AUTH0_CLIENT_ID=UGG4z0BT5d2t3HcOt6LdVehrY5K5Qpkw
+AUTH0_CLIENT_SECRET=<AUTH0_CLIENT_SECRET>
 ALB_URL=http://<ALB_DNS>
 ENVEOF
 
 export $(grep -v '^#' .env | xargs)
-
-# ⚠️ IMPORTANTE: actualizar el db_router para Sprint 4 (el del Sprint 3 usa 'monitoring')
-cat > bitecoapp/db_router.py << 'ROUTEREOF'
-class ReportesReplicaRouter:
-    def db_for_read(self, model, **hints):
-        return "default"
-    def db_for_write(self, model, **hints):
-        return "default"
-    def allow_relation(self, obj1, obj2, **hints):
-        return True
-    def allow_migrate(self, db, app_label, model_name=None, **hints):
-        return db == "default"
-ROUTEREOF
 
 python manage.py migrate
 
@@ -310,7 +304,7 @@ CREATE TABLE IF NOT EXISTS reporte_consumocloud (
 python manage.py seed_demo
 # Debe mostrar: Seed completo. 27 filas de ConsumoCloud creadas.
 
-# ⚠️ IMPORTANTE: usar gunicorn en vez de runserver para aguantar carga de los experimentos
+# ⚠️ IMPORTANTE: usar gunicorn en vez de runserver para aguantar carga
 gunicorn bitecoapp.wsgi:application --bind 0.0.0.0:8002 --workers 4
 
 
@@ -358,8 +352,8 @@ uvicorn main:app --host 0.0.0.0 --port 8003 --workers 2
 curl http://<ALB_DNS>/health-check/
 # Debe retornar: OK
 
-# Endpoint de nubes:
-curl "http://<ALB_DNS>/api/nubes/consumo?empresa_id=1&mes=3&anio:2026"
+# Endpoint de nubes con datos:
+curl "http://<ALB_DNS>/api/nubes/consumo?empresa_id=1&mes=3&anio=2026"
 # Debe retornar JSON con datos de consumo AWS y GCP
 
 # Endpoint de reportes (retorna Unauthorized — correcto, está protegido):
@@ -370,7 +364,7 @@ curl "http://<ALB_DNS>/api/reportes/mensual?empresa_id=1&mes=3&anio=2026"
 for i in {1..65}; do curl -s -o /dev/null -w "%{http_code}\n" "http://<ALB_DNS>/api/reportes/mensual?empresa_id=1&mes=3&anio=2026"; done
 
 # Login en el navegador:
-# http://<ALB_DNS>  → login con Auth0 → Dashboard de BiteCo
+# http://<ALB_DNS>  → login con Auth0 → Dashboard → Reportes → Auditoría
 
 # Verificar replicación usuarios-db (en biteco-usuarios-db-primary):
 sudo -u postgres psql -c "SELECT client_addr, state FROM pg_stat_replication;"
