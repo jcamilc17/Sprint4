@@ -541,6 +541,38 @@ resource "aws_lb_listener_rule" "nubes" {
   }
 }
 
+resource "aws_lb_listener_rule" "reportes_html" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 30
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.ms_reportes.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/reportes/*"]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "asr_hub" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 40
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.ms_reportes.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/asr-hub/*"]
+    }
+  }
+}
+
 # Attachments
 resource "aws_lb_target_group_attachment" "ms_usuario" {
   target_group_arn = aws_lb_target_group.ms_usuario.arn
