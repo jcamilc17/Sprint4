@@ -7,17 +7,24 @@ Cambios respecto al original:
 3. La auditoria se hace automaticamente en AuditMiddleware - no se duplica aqui.
 4. Rate limiting por IP: 60 requests/minuto (ASR-S4-SEG)
 """
-import json
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django_ratelimit.decorators import ratelimit
 from reporte.logic.logic_reporte import get_total_por_proveedor
 
 @csrf_exempt
-@ratelimit(key='ip', rate='60/m', method='GET', block=True)
+@ratelimit(key='header:X-Forwarded-For', rate='60/m', method='GET', block=False)
 def reporte_mensual(request):
     if request.method != "GET":
         return JsonResponse({"error": "Metodo no permitido"}, status=405)
+
+    # === ASR-S4-SEG: Rate limiting ===
+    if getattr(request, 'limited', False):
+        return JsonResponse(
+            {"error": "Too Many Requests", "reason": "Rate limit exceeded"},
+            status=429,
+            headers={"Retry-After": "60"}
+        )
 
     # === ASR-01: Autenticación ===
     if not request.user.is_authenticated:
