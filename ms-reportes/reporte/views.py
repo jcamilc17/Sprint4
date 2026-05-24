@@ -1,21 +1,20 @@
 """
 reporte/views.py - API JSON de reportes.
-
 Cambios respecto al original:
 1. Si el usuario no esta autenticado (no hay sesion Django), retorna 401.
 2. Si el usuario autenticado intenta acceder a otra empresa que la del JWT,
    retorna 403 (cumpliendo ASR-01 escenario 4 del informe).
 3. La auditoria se hace automaticamente en AuditMiddleware - no se duplica aqui.
+4. Rate limiting por IP: 60 requests/minuto (ASR-S4-SEG)
 """
 import json
-
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-
+from django_ratelimit.decorators import ratelimit
 from reporte.logic.logic_reporte import get_total_por_proveedor
 
-
 @csrf_exempt
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)
 def reporte_mensual(request):
     if request.method != "GET":
         return JsonResponse({"error": "Metodo no permitido"}, status=405)
@@ -38,7 +37,6 @@ def reporte_mensual(request):
     # === ASR-01: Acceso cruzado entre empresas ===
     user_empresa = getattr(request.user, "empresa_id", None)
     user_rol = getattr(request.user, "rol", "Usuario")
-
     if user_rol != "Admin" and user_empresa is not None and empresa_id_param != user_empresa:
         return JsonResponse(
             {
@@ -52,7 +50,6 @@ def reporte_mensual(request):
 
     # === Lógica de negocio ===
     totales = get_total_por_proveedor(empresa_id_param, mes, anio)
-
     return JsonResponse({
         "empresa_id": empresa_id_param,
         "mes": mes,
