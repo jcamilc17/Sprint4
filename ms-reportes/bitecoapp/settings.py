@@ -2,13 +2,12 @@
 Django settings for ms-reportes — Sprint 4.
 
 Cambios respecto al Sprint 3:
-- Solo incluye apps de reporte, registroAuditoria, alerta, recursoCloud, registroCosto
 - BD propia: reportes_db (primary + replica)
-- Se elimina accounts_db y monitoring_db
+- BD compartida: accounts_db (sesiones y usuario — compartida con MS-Usuario)
 - Se agrega Redis como caché (django-redis) para ASR-1
 - Se agrega django-ratelimit para ASR-S4-SEG
-- AUTH_USER_MODEL removido (este MS no gestiona usuarios)
-- Auth0 removido (autenticación delegada al MS-Usuario)
+- AUTH_USER_MODEL apunta a usuario.Usuario (sesiones compartidas con MS-Usuario)
+- Auth0 configurado para validar sesiones compartidas
 """
 import os
 from pathlib import Path
@@ -31,14 +30,22 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
+    # Auth0 OAuth2
+    "social_django",
+
     # Rate limiting (ASR-S4-SEG)
     "django_ratelimit",
 
+    # Apps de dominio
     "alerta",
     "recursoCloud",
     "registroAuditoria",
     "registroCosto",
     "reporte",
+
+    # Compartidas con MS-Usuario (para sesiones)
+    "usuario",
+    "empresa",
 ]
 
 MIDDLEWARE = [
@@ -67,6 +74,8 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "social_django.context_processors.backends",
+                "social_django.context_processors.login_redirect",
             ],
         },
     },
@@ -92,9 +101,35 @@ DATABASES = {
         "HOST": os.environ.get("DB_HOST_REPLICA", "localhost"),
         "PORT": os.environ.get("DB_PORT", "5432"),
     },
+    # BD compartida con MS-Usuario (sesiones y autenticación)
+    "accounts": {
+        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "NAME": "accounts_db",
+        "USER": os.environ.get("DB_USER", "biteco_user"),
+        "PASSWORD": os.environ.get("DB_PASSWORD", "biteco_pass"),
+        "HOST": os.environ.get("DB_HOST_ACCOUNTS", "localhost"),
+        "PORT": os.environ.get("DB_PORT", "5432"),
+    },
 }
 
-DATABASE_ROUTERS = ["bitecoapp.db_router.MonitoringReplicaRouter"]
+DATABASE_ROUTERS = ["bitecoapp.db_router.ReportesReplicaRouter"]
+
+# Sesiones compartidas con MS-Usuario
+SESSION_ENGINE = "django.contrib.sessions.backends.db"
+SESSION_COOKIE_NAME = "sessionid"
+
+# Auth_USER_MODEL compartido con MS-Usuario
+AUTH_USER_MODEL = "usuario.Usuario"
+
+# Auth0 para validar sesiones
+AUTHENTICATION_BACKENDS = [
+    "social_core.backends.auth0.Auth0OAuth2",
+    "django.contrib.auth.backends.ModelBackend",
+]
+SOCIAL_AUTH_TRAILING_SLASH = False
+SOCIAL_AUTH_AUTH0_DOMAIN = os.environ.get("AUTH0_DOMAIN", "")
+SOCIAL_AUTH_AUTH0_KEY = os.environ.get("AUTH0_CLIENT_ID", "")
+SOCIAL_AUTH_AUTH0_SECRET = os.environ.get("AUTH0_CLIENT_SECRET", "")
 
 # Redis como caché (ASR-1 - reduce latencia P95)
 CACHES = {

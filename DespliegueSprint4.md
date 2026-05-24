@@ -7,6 +7,7 @@
 #   4. EC2 → reportes-db-primary → fix pg_hba.conf
 #   5. EC2 → reportes-db-replica → streaming replication
 #   6. EC2 → redis-server → fix protected-mode y bind
+#   6.5. EC2 → ms-nubes → poblar Redis con datos de consumo
 #   7. EC2 → ms-usuario → clonar, instalar, migrate, runserver
 #   8. EC2 → ms-reportes → clonar, instalar, migrate, seed, gunicorn
 #   9. EC2 → ms-nubes → clonar, instalar, uvicorn (FastAPI)
@@ -20,7 +21,11 @@
 # De manage.auth0.com → Applications → tu app → Settings:
 #   AUTH0_DOMAIN        = dev-lhsedsl4b3teyxes.us.auth0.com
 #   AUTH0_CLIENT_ID     = UGG4z0BT5d2t3HcOt6LdVehrY5K5Qpkw
-#   AUTH0_CLIENT_SECRET = pP3B0TkrhBj0VvsAO0tBSJS7g4wozh4_D6YIryAryvK6L6TqrkxpiN97P0GZh4rkt
+#   AUTH0_CLIENT_SECRET = hECTdQRsNB--I29UJVQ3mYWYXUT5ZnaeN9pAx7bEEvil1pPZmvqUQZWIo727fpHO
+#
+# ⚠️ IMPORTANTE: el Client Secret puede rotar. Si da error 401 en Auth0,
+# ir a manage.auth0.com → Applications → BITE.CO → Settings → Rotate Secret
+# y actualizar el valor en el .env de MS-Usuario.
 
 
 # ==============================================================
@@ -150,6 +155,36 @@ redis-cli ping
 
 
 # ==============================================================
+# PASO 6.5 — POBLAR REDIS CON DATOS DE CONSUMO CLOUD
+# ==============================================================
+# EC2 → biteco-ms-nubes → Connect → EC2 Instance Connect
+# ⚠️ Hacer esto DESPUÉS del Paso 6 (Redis ya debe estar corriendo)
+# ⚠️ Hacer esto ANTES del Paso 9 (MS-Nubes debe estar clonado)
+
+cd /home/ubuntu
+git clone https://github.com/jcamilc17/Sprint4.git
+cd Sprint4/ms-nubes
+
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+cat > .env << 'ENVEOF'
+REDIS_URL=redis://<REDIS_PRIVATE_IP>:6379/1
+ALB_URL=http://<ALB_DNS>
+ENVEOF
+
+export $(grep -v '^#' .env | xargs)
+
+python seed_redis.py
+# Debe mostrar: Seed completo. 36 registros de consumo cloud creados en Redis.
+
+# Verificar que los datos están en Redis:
+redis-cli -h <REDIS_PRIVATE_IP> keys "empresa:*"
+# Debe mostrar 36 keys (3 empresas x 12 meses)
+
+
+# ==============================================================
 # PASO 7 — MS-USUARIO: clonar, instalar, migrate y runserver
 # ==============================================================
 # EC2 → biteco-ms-usuario → Connect → EC2 Instance Connect
@@ -173,14 +208,15 @@ DB_HOST=<ACCOUNTS_DB_PRIVATE_IP>
 DB_PORT=5432
 AUTH0_DOMAIN=dev-lhsedsl4b3teyxes.us.auth0.com
 AUTH0_CLIENT_ID=UGG4z0BT5d2t3HcOt6LdVehrY5K5Qpkw
-AUTH0_CLIENT_SECRET=pP3B0TkrhBj0VvsAO0tBSJS7g4wozh4_D6YIryAryvK6L6TqrkxpiN97P0GZh4rkt
+AUTH0_CLIENT_SECRET=<AUTH0_CLIENT_SECRET>
 ALB_URL=http://<ALB_DNS>
 ENVEOF
 
 export $(grep -v '^#' .env | xargs)
 
 # ⚠️ IMPORTANTE: crear la tabla usuario_usuario manualmente antes de migrar
-# Esto es necesario porque social_django tiene FK a esta tabla y falla si no existe
+# Los campos camelCase deben ir entre comillas dobles para que PostgreSQL
+# los trate como case-sensitive
 psql accounts_db -U biteco_user -h <ACCOUNTS_DB_PRIVATE_IP> -c "
 CREATE TABLE IF NOT EXISTS usuario_usuario (
     id SERIAL PRIMARY KEY,
@@ -194,13 +230,13 @@ CREATE TABLE IF NOT EXISTS usuario_usuario (
     is_staff BOOLEAN NOT NULL,
     is_active BOOLEAN NOT NULL,
     date_joined TIMESTAMPTZ NOT NULL,
-    nombre_negocio VARCHAR(100) NOT NULL,
-    apellido VARCHAR(100) NOT NULL,
-    rol VARCHAR(50) NOT NULL,
-    telefono VARCHAR(15) NOT NULL,
-    estado VARCHAR(50) NOT NULL,
-    fechaCreacion DATE NOT NULL,
-    ultimoAcceso DATE NOT NULL,
+    nombre_negocio VARCHAR(100) NOT NULL DEFAULT '',
+    apellido VARCHAR(100) NOT NULL DEFAULT '',
+    rol VARCHAR(50) NOT NULL DEFAULT 'Usuario',
+    telefono VARCHAR(15) NOT NULL DEFAULT '',
+    estado VARCHAR(50) NOT NULL DEFAULT 'activo',
+    \"fechaCreacion\" DATE NOT NULL DEFAULT CURRENT_DATE,
+    \"ultimoAcceso\" DATE NOT NULL DEFAULT CURRENT_DATE,
     empresa_id INTEGER
 );"
 
@@ -279,23 +315,13 @@ gunicorn bitecoapp.wsgi:application --bind 0.0.0.0:8002 --workers 4
 
 
 # ==============================================================
-# PASO 9 — MS-NUBES: clonar, instalar y arrancar con uvicorn
+# PASO 9 — MS-NUBES: arrancar con uvicorn
 # ==============================================================
 # EC2 → biteco-ms-nubes → Connect → EC2 Instance Connect
+# (ya fue clonado e instalado en el Paso 6.5)
 
-cd /home/ubuntu
-git clone https://github.com/jcamilc17/Sprint4.git
-cd Sprint4/ms-nubes
-
-python3 -m venv venv
+cd /home/ubuntu/Sprint4/ms-nubes
 source venv/bin/activate
-pip install -r requirements.txt
-
-cat > .env << 'ENVEOF'
-REDIS_URL=redis://<REDIS_PRIVATE_IP>:6379/1
-ALB_URL=http://<ALB_DNS>
-ENVEOF
-
 export $(grep -v '^#' .env | xargs)
 
 uvicorn main:app --host 0.0.0.0 --port 8003 --workers 2
@@ -333,8 +359,8 @@ curl http://<ALB_DNS>/health-check/
 # Debe retornar: OK
 
 # Endpoint de nubes:
-curl "http://<ALB_DNS>/api/nubes/consumo?empresa_id=1&mes=3&anio=2026"
-# Debe retornar: {"empresa_id":1,"mes":3,"anio":2026,"consumo":{}}
+curl "http://<ALB_DNS>/api/nubes/consumo?empresa_id=1&mes=3&anio:2026"
+# Debe retornar JSON con datos de consumo AWS y GCP
 
 # Endpoint de reportes (retorna Unauthorized — correcto, está protegido):
 curl "http://<ALB_DNS>/api/reportes/mensual?empresa_id=1&mes=3&anio=2026"
@@ -342,6 +368,9 @@ curl "http://<ALB_DNS>/api/reportes/mensual?empresa_id=1&mes=3&anio=2026"
 
 # Verificar rate limiting (primeros 60 dan 401, del 61 en adelante dan 429):
 for i in {1..65}; do curl -s -o /dev/null -w "%{http_code}\n" "http://<ALB_DNS>/api/reportes/mensual?empresa_id=1&mes=3&anio=2026"; done
+
+# Login en el navegador:
+# http://<ALB_DNS>  → login con Auth0 → Dashboard de BiteCo
 
 # Verificar replicación usuarios-db (en biteco-usuarios-db-primary):
 sudo -u postgres psql -c "SELECT client_addr, state FROM pg_stat_replication;"
