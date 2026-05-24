@@ -8,7 +8,7 @@
 #   5. EC2 → reportes-db-replica → streaming replication
 #   6. EC2 → redis-server → fix protected-mode y bind
 #   7. EC2 → ms-usuario → clonar, instalar, migrate, runserver
-#   8. EC2 → ms-reportes → clonar, instalar, migrate, seed, runserver
+#   8. EC2 → ms-reportes → clonar, instalar, migrate, seed, gunicorn
 #   9. EC2 → ms-nubes → clonar, instalar, uvicorn (FastAPI)
 #  10. Auth0 Dashboard → registrar callback URL del ALB
 # =========================================================
@@ -213,7 +213,7 @@ python manage.py runserver 0.0.0.0:8001
 
 
 # ==============================================================
-# PASO 8 — MS-REPORTES: clonar, instalar, migrate, seed y runserver
+# PASO 8 — MS-REPORTES: clonar, instalar, migrate, seed y gunicorn
 # ==============================================================
 # EC2 → biteco-ms-reportes → Connect → EC2 Instance Connect
 
@@ -224,6 +224,7 @@ cd Sprint4/ms-reportes
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+pip install gunicorn
 
 cat > .env << 'ENVEOF'
 DEBUG=False
@@ -257,7 +258,6 @@ ROUTEREOF
 python manage.py migrate
 
 # ⚠️ IMPORTANTE: crear tabla reporte_consumocloud manualmente antes del seed
-# Las migraciones quedan marcadas como aplicadas pero la tabla no se crea físicamente
 psql reportes_db -U biteco_user -h <REPORTES_DB_PRIMARY_IP> -c "
 CREATE TABLE IF NOT EXISTS reporte_consumocloud (
     id bigserial PRIMARY KEY,
@@ -274,8 +274,8 @@ CREATE TABLE IF NOT EXISTS reporte_consumocloud (
 python manage.py seed_demo
 # Debe mostrar: Seed completo. 27 filas de ConsumoCloud creadas.
 
-# Arrancar el servidor
-python manage.py runserver 0.0.0.0:8002
+# ⚠️ IMPORTANTE: usar gunicorn en vez de runserver para aguantar carga de los experimentos
+gunicorn bitecoapp.wsgi:application --bind 0.0.0.0:8002 --workers 4
 
 
 # ==============================================================
@@ -340,13 +340,16 @@ curl "http://<ALB_DNS>/api/nubes/consumo?empresa_id=1&mes=3&anio=2026"
 curl "http://<ALB_DNS>/api/reportes/mensual?empresa_id=1&mes=3&anio=2026"
 # Debe retornar: {"error": "Unauthorized", "reason": "Authentication required"}
 
+# Verificar rate limiting (primeros 60 dan 401, del 61 en adelante dan 429):
+for i in {1..65}; do curl -s -o /dev/null -w "%{http_code}\n" "http://<ALB_DNS>/api/reportes/mensual?empresa_id=1&mes=3&anio=2026"; done
+
 # Verificar replicación usuarios-db (en biteco-usuarios-db-primary):
 sudo -u postgres psql -c "SELECT client_addr, state FROM pg_stat_replication;"
 
 # Verificar replicación reportes-db (en biteco-reportes-db-primary):
 sudo -u postgres psql -c "SELECT client_addr, state FROM pg_stat_replication;"
 
-# Verificar Redis desde MS-Nubes o MS-Reportes:
+# Verificar Redis:
 redis-cli -h <REDIS_PRIVATE_IP> ping
 # Debe retornar: PONG
 
@@ -355,19 +358,20 @@ redis-cli -h <REDIS_PRIVATE_IP> ping
 # REFERENCIA RÁPIDA — Reiniciar microservicios
 # ==============================================================
 
-# MS-Usuario (Django):
+# MS-Usuario (Django runserver):
 cd /home/ubuntu/Sprint4/ms-usuario
 source venv/bin/activate
 export $(grep -v '^#' .env | xargs)
 python manage.py runserver 0.0.0.0:8001
 
-# MS-Reportes (Django):
+# MS-Reportes (Gunicorn):
 cd /home/ubuntu/Sprint4/ms-reportes
 source venv/bin/activate
 export $(grep -v '^#' .env | xargs)
-python manage.py runserver 0.0.0.0:8002
+pkill gunicorn   # si ya hay uno corriendo
+gunicorn bitecoapp.wsgi:application --bind 0.0.0.0:8002 --workers 4
 
-# MS-Nubes (FastAPI):
+# MS-Nubes (FastAPI uvicorn):
 cd /home/ubuntu/Sprint4/ms-nubes
 source venv/bin/activate
 export $(grep -v '^#' .env | xargs)
@@ -381,24 +385,23 @@ uvicorn main:app --host 0.0.0.0 --port 8003 --workers 2
 
 
 # ==============================================================
-# REFERENCIA RÁPIDA — Experimento ASR-13 (Mantenimiento)
+# REFERENCIA RÁPIDA — Correr experimentos k6
 # ==============================================================
-# Mientras k6 corre tráfico a los 3 microservicios, reiniciar MS-Reportes:
+# Los scripts están en Sprint4/tests/
 
-# EC2 → biteco-ms-reportes → Connect → EC2 Instance Connect
-cd /home/ubuntu/Sprint4/ms-reportes
-source venv/bin/activate
-export $(grep -v '^#' .env | xargs)
-# Detener el proceso actual (Ctrl+C o kill)
-# Volver a arrancar:
-python manage.py runserver 0.0.0.0:8002
+# ASR-13 (Mantenimiento) — 3 minutos:
+k6 run tests/experimento_asr13.js
+# Al minuto 1: reiniciar MS-Reportes en EC2
 
-# MS-Usuario y MS-Nubes deben seguir respondiendo con 0% de errores
-# durante y después del reinicio de MS-Reportes.
+# ASR-1 (Latencia) — 13 minutos:
+k6 run tests/experimento_asr1.js
+
+# ASR-S4-SEG (Seguridad) — 3 minutos:
+k6 run tests/experimento_seguridad.js
 
 
 # ==============================================================
 # NOTA — Si reinicias las instancias EC2
 # ==============================================================
-# Ningún runserver/uvicorn persiste entre reinicios. Volver a correr
+# Ningún proceso persiste entre reinicios. Volver a correr
 # el comando correspondiente en cada instancia.
